@@ -116,6 +116,63 @@ jobs:
 
           CLUSTER_ROLE="${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-eks-cluster-role"
           NODE_ROLE="${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-eks-node-role"
+          NODEGROUP_NAME="${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-node-group"
+
+          CLUSTER_EXISTS=false
+          if aws eks describe-cluster --name "${{ env.EKS_CLUSTER_NAME }}" >/dev/null 2>&1; then
+            CLUSTER_EXISTS=true
+            import_if_needed "aws_eks_cluster.main" "${{ env.EKS_CLUSTER_NAME }}"
+          fi
+
+          if aws eks describe-nodegroup --cluster-name "${{ env.EKS_CLUSTER_NAME }}" --nodegroup-name "$NODEGROUP_NAME" >/dev/null 2>&1; then
+            import_if_needed "aws_eks_node_group.main" "${{ env.EKS_CLUSTER_NAME }}:$NODEGROUP_NAME"
+          fi
+
+          if [[ "$CLUSTER_EXISTS" == "true" ]]; then
+            VPC_ID="$(aws eks describe-cluster --name "${{ env.EKS_CLUSTER_NAME }}" --query 'cluster.resourcesVpcConfig.vpcId' --output text)"
+            SUBNET_0="$(aws eks describe-cluster --name "${{ env.EKS_CLUSTER_NAME }}" --query 'cluster.resourcesVpcConfig.subnetIds[0]' --output text)"
+            SUBNET_1="$(aws eks describe-cluster --name "${{ env.EKS_CLUSTER_NAME }}" --query 'cluster.resourcesVpcConfig.subnetIds[1]' --output text)"
+
+            if [[ -n "$VPC_ID" && "$VPC_ID" != "None" ]]; then
+              import_if_needed "aws_vpc.main" "$VPC_ID"
+            fi
+
+            if [[ -n "$SUBNET_0" && "$SUBNET_0" != "None" ]]; then
+              import_if_needed "aws_subnet.public[0]" "$SUBNET_0"
+            fi
+
+            if [[ -n "$SUBNET_1" && "$SUBNET_1" != "None" ]]; then
+              import_if_needed "aws_subnet.public[1]" "$SUBNET_1"
+            fi
+
+            IGW_ID="$(aws ec2 describe-internet-gateways \
+              --filters "Name=attachment.vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-igw" \
+              --query 'InternetGateways[0].InternetGatewayId' --output text 2>/dev/null || true)"
+            if [[ -n "$IGW_ID" && "$IGW_ID" != "None" ]]; then
+              import_if_needed "aws_internet_gateway.main" "$IGW_ID"
+            fi
+
+            RT_ID="$(aws ec2 describe-route-tables \
+              --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag:Name,Values=${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-public-rt" \
+              --query 'RouteTables[0].RouteTableId' --output text 2>/dev/null || true)"
+            if [[ -n "$RT_ID" && "$RT_ID" != "None" ]]; then
+              import_if_needed "aws_route_table.public" "$RT_ID"
+
+              if [[ -n "$SUBNET_0" && "$SUBNET_0" != "None" ]]; then
+                RTA0_ID="$(aws ec2 describe-route-tables --route-table-ids "$RT_ID" --query "RouteTables[0].Associations[?SubnetId=='$SUBNET_0'].RouteTableAssociationId | [0]" --output text 2>/dev/null || true)"
+                if [[ -n "$RTA0_ID" && "$RTA0_ID" != "None" ]]; then
+                  import_if_needed "aws_route_table_association.public[0]" "$RTA0_ID"
+                fi
+              fi
+
+              if [[ -n "$SUBNET_1" && "$SUBNET_1" != "None" ]]; then
+                RTA1_ID="$(aws ec2 describe-route-tables --route-table-ids "$RT_ID" --query "RouteTables[0].Associations[?SubnetId=='$SUBNET_1'].RouteTableAssociationId | [0]" --output text 2>/dev/null || true)"
+                if [[ -n "$RTA1_ID" && "$RTA1_ID" != "None" ]]; then
+                  import_if_needed "aws_route_table_association.public[1]" "$RTA1_ID"
+                fi
+              fi
+            fi
+          fi
 
           if aws iam get-role --role-name "$CLUSTER_ROLE" >/dev/null 2>&1; then
             import_if_needed "aws_iam_role.eks_cluster" "$CLUSTER_ROLE"
