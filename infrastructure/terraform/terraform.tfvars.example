@@ -1,10 +1,17 @@
-resource_group_name = "rg-food-delivery-dev"
-location            = "eastus"
-acr_name            = "acrfooddeliverydev123"
-aks_cluster_name    = "aks-food-delivery-dev"
-aks_dns_prefix      = "food-delivery"
-node_count          = 2
-vm_size             = "Standard_B2s"
+aws_region        = "us-east-1"
+project_name      = "food-delivery"
+environment       = "dev"
+eks_cluster_name  = "eks-food-delivery-dev"
+node_desired_size = 2
+node_min_size     = 1
+node_max_size     = 3
+node_instance_type = "t3.medium"
+
+ecr_repository_names = [
+  "order-service",
+  "restaurant-service",
+  "delivery-service"
+]
 
 tags = {
   project = "food-delivery"

@@ -1,40 +1,54 @@
-variable "resource_group_name" {
-  description = "Azure resource group name"
+variable "aws_region" {
+  description = "AWS region"
   type        = string
+  default     = "us-east-1"
 }
 
-variable "location" {
-  description = "Azure region"
-  type        = string
-  default     = "eastus"
-}
-
-variable "acr_name" {
-  description = "Azure Container Registry name"
-  type        = string
-}
-
-variable "aks_cluster_name" {
-  description = "AKS cluster name"
-  type        = string
-}
-
-variable "aks_dns_prefix" {
-  description = "AKS DNS prefix"
+variable "project_name" {
+  description = "Project name prefix"
   type        = string
   default     = "food-delivery"
 }
 
-variable "node_count" {
-  description = "AKS node count"
+variable "environment" {
+  description = "Deployment environment"
+  type        = string
+  default     = "dev"
+}
+
+variable "eks_cluster_name" {
+  description = "EKS cluster name"
+  type        = string
+}
+
+variable "ecr_repository_names" {
+  description = "ECR repository names to create"
+  type        = list(string)
+  default     = ["order-service", "restaurant-service", "delivery-service"]
+}
+
+variable "node_desired_size" {
+  description = "Desired worker node count"
   type        = number
   default     = 2
 }
 
-variable "vm_size" {
-  description = "AKS node VM size"
+variable "node_min_size" {
+  description = "Minimum worker node count"
+  type        = number
+  default     = 1
+}
+
+variable "node_max_size" {
+  description = "Maximum worker node count"
+  type        = number
+  default     = 3
+}
+
+variable "node_instance_type" {
+  description = "EKS worker node instance type"
   type        = string
-  default     = "Standard_B2s"
+  default     = "t3.medium"
 }
 
 variable "tags" {

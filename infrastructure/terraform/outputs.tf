@@ -1,19 +1,21 @@
-output "resource_group_name" {
-  description = "Resource group name"
-  value       = azurerm_resource_group.main.name
+output "eks_cluster_name" {
+  description = "EKS cluster name"
+  value       = aws_eks_cluster.main.name
 }
 
-output "acr_login_server" {
-  description = "ACR login server"
-  value       = azurerm_container_registry.main.login_server
+output "ecr_registry_url" {
+  description = "Base ECR registry URL"
+  value       = split("/", values(aws_ecr_repository.services)[0].repository_url)[0]
 }
 
-output "aks_cluster_name" {
-  description = "AKS name"
-  value       = module.aks.cluster_name
+output "ecr_repositories" {
+  description = "ECR repository URLs"
+  value = {
+    for name, repo in aws_ecr_repository.services : name => repo.repository_url
+  }
 }
 
-output "aks_kube_config_command" {
+output "eks_kube_config_command" {
   description = "Command to fetch kubeconfig"
-  value       = "az aks get-credentials --resource-group ${azurerm_resource_group.main.name} --name ${module.aks.cluster_name} --overwrite-existing"
+  value       = "aws eks update-kubeconfig --region ${var.aws_region} --name ${aws_eks_cluster.main.name}"
 }

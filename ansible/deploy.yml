@@ -1,10 +1,11 @@
 ---
-- name: Configure host and deploy to AKS
+- name: Configure host and deploy to EKS
   hosts: devops
   become: false
   vars:
-    resource_group_name: rg-food-delivery-dev
-    aks_cluster_name: aks-food-delivery-dev
+    aws_region: us-east-1
+    eks_cluster_name: eks-food-delivery-dev
+    container_registry: 111111111111.dkr.ecr.us-east-1.amazonaws.com
     namespace: food-delivery
 
   tasks:
@@ -13,28 +14,32 @@
       register: kubectl_check
       changed_when: false
 
-    - name: Ensure azure cli is available
-      ansible.builtin.command: az version
-      register: az_check
+    - name: Ensure aws cli is available
+      ansible.builtin.command: aws --version
+      register: aws_check
       changed_when: false
 
-    - name: Fetch AKS credentials
+    - name: Fetch EKS credentials
       ansible.builtin.command: >-
-        az aks get-credentials --resource-group {{ resource_group_name }}
-        --name {{ aks_cluster_name }}
-        --overwrite-existing
+        aws eks update-kubeconfig --region {{ aws_region }}
+        --name {{ eks_cluster_name }}
+      changed_when: true
+
+    - name: Render manifests with ECR registry
+      ansible.builtin.command: >-
+        ../scripts/render-k8s-manifests.sh {{ container_registry }}
       changed_when: true
 
     - name: Create namespace
-      ansible.builtin.command: kubectl apply -f ../k8s/base/namespace.yaml
+      ansible.builtin.command: kubectl apply -f ../k8s/generated/namespace.yaml
       changed_when: true
 
     - name: Apply deployments
-      ansible.builtin.command: kubectl apply -f ../k8s/base/deployment.yaml
+      ansible.builtin.command: kubectl apply -f ../k8s/generated/deployment.yaml
       changed_when: true
 
     - name: Apply services
-      ansible.builtin.command: kubectl apply -f ../k8s/base/service.yaml
+      ansible.builtin.command: kubectl apply -f ../k8s/generated/service.yaml
       changed_when: true
 
     - name: Verify pods

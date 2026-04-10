@@ -41,14 +41,13 @@ curl http://localhost:3002/health
 curl http://localhost:3003/health
 ```
 
-## Phase 3: Infrastructure as Code (Terraform + Azure)
+## Phase 3: Infrastructure as Code (Terraform + AWS)
 
 Terraform creates:
-- Azure Resource Group
-- Virtual Network + Subnet
-- Azure Kubernetes Service (AKS)
-- Azure Container Registry (ACR)
-- AKS permission to pull images from ACR (`AcrPull` role)
+- AWS VPC + public subnets
+- Internet Gateway + route table
+- AWS EKS cluster + managed node group
+- AWS ECR repositories for each microservice
 
 ### Terraform setup
 ```bash
@@ -59,41 +58,42 @@ terraform plan
 terraform apply -auto-approve
 ```
 
-## Phase 4: Container Registry (ACR)
+## Phase 4: Container Registry (ECR)
 
 After Terraform apply:
 ```bash
-az acr login --name <acr-name>
+aws ecr get-login-password --region <aws-region> | docker login --username AWS --password-stdin <account-id>.dkr.ecr.<aws-region>.amazonaws.com
 ```
 
 Build and push images manually:
 ```bash
-ACR_LOGIN_SERVER=$(az acr show --name <acr-name> --resource-group <rg-name> --query loginServer -o tsv)
-docker build -t $ACR_LOGIN_SERVER/order-service:latest ./services/order-service
-docker build -t $ACR_LOGIN_SERVER/restaurant-service:latest ./services/restaurant-service
-docker build -t $ACR_LOGIN_SERVER/delivery-service:latest ./services/delivery-service
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+ECR_REGISTRY=$AWS_ACCOUNT_ID.dkr.ecr.<aws-region>.amazonaws.com
+docker build -t $ECR_REGISTRY/order-service:latest ./services/order-service
+docker build -t $ECR_REGISTRY/restaurant-service:latest ./services/restaurant-service
+docker build -t $ECR_REGISTRY/delivery-service:latest ./services/delivery-service
 
-docker push $ACR_LOGIN_SERVER/order-service:latest
-docker push $ACR_LOGIN_SERVER/restaurant-service:latest
-docker push $ACR_LOGIN_SERVER/delivery-service:latest
+docker push $ECR_REGISTRY/order-service:latest
+docker push $ECR_REGISTRY/restaurant-service:latest
+docker push $ECR_REGISTRY/delivery-service:latest
 ```
 
-## Phase 5: Kubernetes Deployment (AKS)
+## Phase 5: Kubernetes Deployment (EKS)
 
 Manifests:
 - `k8s/base/deployment.yaml`
 - `k8s/base/service.yaml`
 - `k8s/base/namespace.yaml`
 
-Render manifests with your ACR login server:
+Render manifests with your container registry URL:
 ```bash
 chmod +x scripts/render-k8s-manifests.sh
-./scripts/render-k8s-manifests.sh <acr-login-server>
+./scripts/render-k8s-manifests.sh <container-registry-url>
 ```
 
 Deploy:
 ```bash
-az aks get-credentials --resource-group <rg-name> --name <aks-name> --overwrite-existing
+aws eks update-kubeconfig --region <aws-region> --name <eks-cluster-name>
 kubectl apply -f k8s/generated/namespace.yaml
 kubectl apply -f k8s/generated/deployment.yaml
 kubectl apply -f k8s/generated/service.yaml
@@ -119,29 +119,20 @@ Workflow:
 
 Pipeline behavior:
 1. CI job installs dependencies for each service.
-2. Terraform job provisions/updates Azure infra on `main`.
-3. CD job builds images, pushes to ACR, updates AKS deployments.
+2. Terraform job provisions/updates AWS infra on `main`.
+3. CD job builds images, pushes to ECR, updates EKS deployments.
 
 ### Required GitHub configuration
 
 Set repository secret:
-- `AZURE_CREDENTIALS` (service principal JSON for `azure/login`)
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
 
 Set repository variables:
-- `RESOURCE_GROUP_NAME`
-- `AZURE_LOCATION`
-- `ACR_NAME`
-- `AKS_CLUSTER_NAME`
-
-Example `AZURE_CREDENTIALS` JSON format:
-```json
-{
-  "clientId": "<app-id>",
-  "clientSecret": "<password>",
-  "subscriptionId": "<subscription-id>",
-  "tenantId": "<tenant-id>"
-}
-```
+- `AWS_REGION`
+- `PROJECT_NAME`
+- `ENVIRONMENT`
+- `EKS_CLUSTER_NAME`
 
 ## Project Structure
 
@@ -157,5 +148,5 @@ Example `AZURE_CREDENTIALS` JSON format:
 
 ## Notes
 
-- Kubernetes deployment manifests use `REPLACE_ACR_LOGIN_SERVER` placeholder and are rendered into `k8s/generated/` before deployment.
+- Kubernetes deployment manifests use `REPLACE_CONTAINER_REGISTRY` placeholder and are rendered into `k8s/generated/` before deployment.
 - This starter is for learning and project demonstration. For production, add image vulnerability scanning, policy checks, approvals, remote Terraform state, and advanced observability.
