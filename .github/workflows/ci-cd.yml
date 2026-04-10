@@ -9,7 +9,9 @@ on:
 env:
   TF_IN_AUTOMATION: true
   AWS_REGION: ap-south-1
-  EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+  EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'food-delivery-eks-dev' }}
+  PROJECT_NAME: ${{ vars.PROJECT_NAME || 'food-delivery' }}
+  ENVIRONMENT: ${{ vars.ENVIRONMENT || 'dev' }}
   NAMESPACE: food-delivery
 
 jobs:
@@ -74,16 +76,16 @@ jobs:
         run: terraform plan -input=false
         env:
           TF_VAR_aws_region: ${{ env.AWS_REGION }}
-          TF_VAR_project_name: ${{ vars.PROJECT_NAME }}
-          TF_VAR_environment: ${{ vars.ENVIRONMENT }}
+          TF_VAR_project_name: ${{ env.PROJECT_NAME }}
+          TF_VAR_environment: ${{ env.ENVIRONMENT }}
           TF_VAR_eks_cluster_name: ${{ env.EKS_CLUSTER_NAME }}
 
       - name: Terraform apply
         run: terraform apply -auto-approve -input=false
         env:
           TF_VAR_aws_region: ${{ env.AWS_REGION }}
-          TF_VAR_project_name: ${{ vars.PROJECT_NAME }}
-          TF_VAR_environment: ${{ vars.ENVIRONMENT }}
+          TF_VAR_project_name: ${{ env.PROJECT_NAME }}
+          TF_VAR_environment: ${{ env.ENVIRONMENT }}
           TF_VAR_eks_cluster_name: ${{ env.EKS_CLUSTER_NAME }}
 
   # Stage 3: Build and Push Images
