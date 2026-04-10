@@ -8,7 +8,7 @@ on:
 
 env:
   TF_IN_AUTOMATION: true
-  AWS_REGION: ${{ vars.AWS_REGION }}
+  AWS_REGION: ap-south-1
   EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
   NAMESPACE: food-delivery
 
