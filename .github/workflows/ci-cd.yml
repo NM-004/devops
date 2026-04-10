@@ -63,11 +63,84 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Get AWS account ID
+        id: aws_account
+        run: echo "id=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure Terraform state bucket
+        run: |
+          set -euo pipefail
+          BUCKET_NAME="tfstate-${{ steps.aws_account.outputs.id }}-${{ env.AWS_REGION }}-food-delivery"
+          if aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
+            echo "State bucket exists: $BUCKET_NAME"
+          else
+            aws s3api create-bucket \
+              --bucket "$BUCKET_NAME" \
+              --region "${{ env.AWS_REGION }}" \
+              --create-bucket-configuration LocationConstraint="${{ env.AWS_REGION }}"
+          fi
+          aws s3api put-bucket-versioning \
+            --bucket "$BUCKET_NAME" \
+            --versioning-configuration Status=Enabled
+          echo "TF_STATE_BUCKET=$BUCKET_NAME" >> "$GITHUB_ENV"
+
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
 
       - name: Terraform init
-        run: terraform init
+        run: |
+          terraform init -reconfigure \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=food-delivery/${{ env.ENVIRONMENT }}/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="encrypt=true"
+
+      - name: Import existing named resources into state
+        run: |
+          set -euo pipefail
+
+          import_if_needed() {
+            local addr="$1"
+            local id="$2"
+            if terraform state show "$addr" >/dev/null 2>&1; then
+              echo "Already in state: $addr"
+            else
+              terraform import "$addr" "$id"
+            fi
+          }
+
+          CLUSTER_ROLE="${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-eks-cluster-role"
+          NODE_ROLE="${{ env.PROJECT_NAME }}-${{ env.ENVIRONMENT }}-eks-node-role"
+
+          if aws iam get-role --role-name "$CLUSTER_ROLE" >/dev/null 2>&1; then
+            import_if_needed "aws_iam_role.eks_cluster" "$CLUSTER_ROLE"
+          fi
+
+          if aws iam get-role --role-name "$NODE_ROLE" >/dev/null 2>&1; then
+            import_if_needed "aws_iam_role.eks_nodes" "$NODE_ROLE"
+          fi
+
+          if aws iam list-attached-role-policies --role-name "$CLUSTER_ROLE" --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null | grep -q 'arn:aws:iam::aws:policy/AmazonEKSClusterPolicy'; then
+            import_if_needed "aws_iam_role_policy_attachment.eks_cluster_policy" "$CLUSTER_ROLE/arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+          fi
+
+          if aws iam list-attached-role-policies --role-name "$NODE_ROLE" --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null | grep -q 'arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy'; then
+            import_if_needed "aws_iam_role_policy_attachment.eks_worker_node_policy" "$NODE_ROLE/arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+          fi
+
+          if aws iam list-attached-role-policies --role-name "$NODE_ROLE" --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null | grep -q 'arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy'; then
+            import_if_needed "aws_iam_role_policy_attachment.eks_cni_policy" "$NODE_ROLE/arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+          fi
+
+          if aws iam list-attached-role-policies --role-name "$NODE_ROLE" --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null | grep -q 'arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly'; then
+            import_if_needed "aws_iam_role_policy_attachment.eks_ecr_readonly_policy" "$NODE_ROLE/arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+          fi
+
+          for repo in order-service restaurant-service delivery-service; do
+            if aws ecr describe-repositories --repository-names "$repo" >/dev/null 2>&1; then
+              import_if_needed "aws_ecr_repository.services[\"$repo\"]" "$repo"
+            fi
+          done
 
       - name: Terraform validate
         run: terraform validate
