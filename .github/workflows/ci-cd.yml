@@ -96,6 +96,11 @@ jobs:
             -backend-config="encrypt=true"
 
       - name: Import existing named resources into state
+        env:
+          TF_VAR_aws_region: ${{ env.AWS_REGION }}
+          TF_VAR_project_name: ${{ env.PROJECT_NAME }}
+          TF_VAR_environment: ${{ env.ENVIRONMENT }}
+          TF_VAR_eks_cluster_name: ${{ env.EKS_CLUSTER_NAME }}
         run: |
           set -euo pipefail
 
@@ -105,7 +110,7 @@ jobs:
             if terraform state show "$addr" >/dev/null 2>&1; then
               echo "Already in state: $addr"
             else
-              terraform import "$addr" "$id"
+              terraform import -input=false "$addr" "$id"
             fi
           }
 
