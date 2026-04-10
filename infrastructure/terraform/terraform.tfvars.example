@@ -1,0 +1,13 @@
+resource_group_name = "rg-food-delivery-dev"
+location            = "eastus"
+acr_name            = "acrfooddeliverydev123"
+aks_cluster_name    = "aks-food-delivery-dev"
+aks_dns_prefix      = "food-delivery"
+node_count          = 2
+vm_size             = "Standard_B2s"
+
+tags = {
+  project = "food-delivery"
+  env     = "dev"
+  owner   = "devops-team"
+}

@@ -1,0 +1,47 @@
+---
+- name: Configure host and deploy to AKS
+  hosts: devops
+  become: false
+  vars:
+    resource_group_name: rg-food-delivery-dev
+    aks_cluster_name: aks-food-delivery-dev
+    namespace: food-delivery
+
+  tasks:
+    - name: Ensure kubectl is available
+      ansible.builtin.command: kubectl version --client
+      register: kubectl_check
+      changed_when: false
+
+    - name: Ensure azure cli is available
+      ansible.builtin.command: az version
+      register: az_check
+      changed_when: false
+
+    - name: Fetch AKS credentials
+      ansible.builtin.command: >-
+        az aks get-credentials --resource-group {{ resource_group_name }}
+        --name {{ aks_cluster_name }}
+        --overwrite-existing
+      changed_when: true
+
+    - name: Create namespace
+      ansible.builtin.command: kubectl apply -f ../k8s/base/namespace.yaml
+      changed_when: true
+
+    - name: Apply deployments
+      ansible.builtin.command: kubectl apply -f ../k8s/base/deployment.yaml
+      changed_when: true
+
+    - name: Apply services
+      ansible.builtin.command: kubectl apply -f ../k8s/base/service.yaml
+      changed_when: true
+
+    - name: Verify pods
+      ansible.builtin.command: kubectl get pods -n {{ namespace }}
+      register: pods
+      changed_when: false
+
+    - name: Show pod status
+      ansible.builtin.debug:
+        var: pods.stdout_lines

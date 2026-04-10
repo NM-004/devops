@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-service
+  namespace: food-delivery
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: order-service
+  template:
+    metadata:
+      labels:
+        app: order-service
+    spec:
+      containers:
+      - name: order-service
+        image: REPLACE_ACR_LOGIN_SERVER/order-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3001
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3001
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: restaurant-service
+  namespace: food-delivery
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: restaurant-service
+  template:
+    metadata:
+      labels:
+        app: restaurant-service
+    spec:
+      containers:
+      - name: restaurant-service
+        image: REPLACE_ACR_LOGIN_SERVER/restaurant-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3002
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3002
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: delivery-service
+  namespace: food-delivery
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: delivery-service
+  template:
+    metadata:
+      labels:
+        app: delivery-service
+    spec:
+      containers:
+      - name: delivery-service
+        image: REPLACE_ACR_LOGIN_SERVER/delivery-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3003
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3003
+          initialDelaySeconds: 5
+          periodSeconds: 10

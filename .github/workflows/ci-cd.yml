@@ -1,0 +1,141 @@
+name: ci-cd
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  TF_IN_AUTOMATION: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service:
+          - order-service
+          - restaurant-service
+          - delivery-service
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+        working-directory: services/${{ matrix.service }}
+
+  terraform:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: ci
+
+    defaults:
+      run:
+        working-directory: infrastructure/terraform
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform init
+        run: terraform init
+
+      - name: Terraform validate
+        run: terraform validate
+
+      - name: Terraform plan
+        run: terraform plan -input=false
+        env:
+          TF_VAR_resource_group_name: ${{ vars.RESOURCE_GROUP_NAME }}
+          TF_VAR_location: ${{ vars.AZURE_LOCATION }}
+          TF_VAR_acr_name: ${{ vars.ACR_NAME }}
+          TF_VAR_aks_cluster_name: ${{ vars.AKS_CLUSTER_NAME }}
+
+      - name: Terraform apply
+        run: terraform apply -auto-approve -input=false
+        env:
+          TF_VAR_resource_group_name: ${{ vars.RESOURCE_GROUP_NAME }}
+          TF_VAR_location: ${{ vars.AZURE_LOCATION }}
+          TF_VAR_acr_name: ${{ vars.ACR_NAME }}
+          TF_VAR_aks_cluster_name: ${{ vars.AKS_CLUSTER_NAME }}
+
+  cd:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: terraform
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Fetch ACR login server
+        id: acr
+        run: |
+          ACR_LOGIN_SERVER=$(az acr show --name "${{ vars.ACR_NAME }}" --resource-group "${{ vars.RESOURCE_GROUP_NAME }}" --query loginServer -o tsv)
+          echo "login_server=$ACR_LOGIN_SERVER" >> "$GITHUB_OUTPUT"
+
+      - name: ACR login
+        run: az acr login --name "${{ vars.ACR_NAME }}"
+
+      - name: Build and push images
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+
+          docker build -t "${{ steps.acr.outputs.login_server }}/order-service:$SHORT_SHA" ./services/order-service
+          docker build -t "${{ steps.acr.outputs.login_server }}/restaurant-service:$SHORT_SHA" ./services/restaurant-service
+          docker build -t "${{ steps.acr.outputs.login_server }}/delivery-service:$SHORT_SHA" ./services/delivery-service
+
+          docker tag "${{ steps.acr.outputs.login_server }}/order-service:$SHORT_SHA" "${{ steps.acr.outputs.login_server }}/order-service:latest"
+          docker tag "${{ steps.acr.outputs.login_server }}/restaurant-service:$SHORT_SHA" "${{ steps.acr.outputs.login_server }}/restaurant-service:latest"
+          docker tag "${{ steps.acr.outputs.login_server }}/delivery-service:$SHORT_SHA" "${{ steps.acr.outputs.login_server }}/delivery-service:latest"
+
+          docker push "${{ steps.acr.outputs.login_server }}/order-service:$SHORT_SHA"
+          docker push "${{ steps.acr.outputs.login_server }}/restaurant-service:$SHORT_SHA"
+          docker push "${{ steps.acr.outputs.login_server }}/delivery-service:$SHORT_SHA"
+
+          docker push "${{ steps.acr.outputs.login_server }}/order-service:latest"
+          docker push "${{ steps.acr.outputs.login_server }}/restaurant-service:latest"
+          docker push "${{ steps.acr.outputs.login_server }}/delivery-service:latest"
+
+      - name: Set AKS context
+        uses: azure/aks-set-context@v4
+        with:
+          resource-group: ${{ vars.RESOURCE_GROUP_NAME }}
+          cluster-name: ${{ vars.AKS_CLUSTER_NAME }}
+
+      - name: Render manifests
+        run: |
+          chmod +x ./scripts/render-k8s-manifests.sh
+          ./scripts/render-k8s-manifests.sh "${{ steps.acr.outputs.login_server }}"
+
+      - name: Deploy to AKS
+        run: |
+          kubectl apply -f k8s/generated/namespace.yaml
+          kubectl apply -f k8s/generated/deployment.yaml
+          kubectl apply -f k8s/generated/service.yaml
+          kubectl rollout status deployment/order-service -n food-delivery
+          kubectl rollout status deployment/restaurant-service -n food-delivery
+          kubectl rollout status deployment/delivery-service -n food-delivery

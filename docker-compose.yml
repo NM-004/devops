@@ -1,0 +1,22 @@
+version: "3.9"
+services:
+  order-service:
+    build:
+      context: ./services/order-service
+    image: food-delivery/order-service:local
+    ports:
+      - "3001:3001"
+
+  restaurant-service:
+    build:
+      context: ./services/restaurant-service
+    image: food-delivery/restaurant-service:local
+    ports:
+      - "3002:3002"
+
+  delivery-service:
+    build:
+      context: ./services/delivery-service
+    image: food-delivery/delivery-service:local
+    ports:
+      - "3003:3003"

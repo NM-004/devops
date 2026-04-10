@@ -1,0 +1,12 @@
+{
+  "name": "delivery-service",
+  "version": "1.0.0",
+  "description": "Delivery microservice for food delivery platform",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
