@@ -102,6 +102,11 @@ jobs:
       - name: Set EKS context
         run: aws eks update-kubeconfig --region "${{ env.AWS_REGION }}" --name "${{ env.EKS_CLUSTER_NAME }}"
 
+      - name: Check cluster nodes
+        run: |
+          kubectl get nodes -o wide || true
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+
       - name: Render Kubernetes manifests
         run: |
           chmod +x ./scripts/render-k8s-manifests.sh
@@ -115,6 +120,17 @@ jobs:
 
       - name: Wait for rollout
         run: |
-          kubectl rollout status deployment/order-service -n "${{ env.NAMESPACE }}" --timeout=600s
-          kubectl rollout status deployment/restaurant-service -n "${{ env.NAMESPACE }}" --timeout=600s
-          kubectl rollout status deployment/delivery-service -n "${{ env.NAMESPACE }}" --timeout=600s
+          set -euo pipefail
+          for svc in order-service restaurant-service delivery-service; do
+            echo "Waiting for deployment/$svc"
+            if ! kubectl rollout status deployment/$svc -n "${{ env.NAMESPACE }}" --timeout=600s; then
+              echo "Rollout failed for $svc. Collecting diagnostics..."
+              kubectl get nodes -o wide || true
+              kubectl get pods -n "${{ env.NAMESPACE }}" -o wide || true
+              kubectl describe deployment/$svc -n "${{ env.NAMESPACE }}" || true
+              kubectl describe pods -n "${{ env.NAMESPACE }}" -l app=$svc || true
+              kubectl logs -n "${{ env.NAMESPACE }}" -l app=$svc --all-containers --tail=100 || true
+              kubectl get events -n "${{ env.NAMESPACE }}" --sort-by='.lastTimestamp' | tail -n 50 || true
+              exit 1
+            fi
+          done
