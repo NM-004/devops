@@ -56,7 +56,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Detect Terraform changes
+        id: tf_changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            terraform:
+              - 'infrastructure/terraform/**'
+
       - name: Configure AWS credentials
+        if: steps.tf_changes.outputs.terraform == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -64,15 +73,19 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Set up Terraform
+        if: steps.tf_changes.outputs.terraform == 'true'
         uses: hashicorp/setup-terraform@v3
 
       - name: Terraform init
+        if: steps.tf_changes.outputs.terraform == 'true'
         run: terraform init
 
       - name: Terraform validate
+        if: steps.tf_changes.outputs.terraform == 'true'
         run: terraform validate
 
       - name: Terraform plan
+        if: steps.tf_changes.outputs.terraform == 'true'
         run: terraform plan -input=false
         env:
           TF_VAR_aws_region: ${{ env.AWS_REGION }}
@@ -81,12 +94,17 @@ jobs:
           TF_VAR_eks_cluster_name: ${{ env.EKS_CLUSTER_NAME }}
 
       - name: Terraform apply
+        if: steps.tf_changes.outputs.terraform == 'true'
         run: terraform apply -auto-approve -input=false
         env:
           TF_VAR_aws_region: ${{ env.AWS_REGION }}
           TF_VAR_project_name: ${{ env.PROJECT_NAME }}
           TF_VAR_environment: ${{ env.ENVIRONMENT }}
           TF_VAR_eks_cluster_name: ${{ env.EKS_CLUSTER_NAME }}
+
+      - name: Skip Terraform apply when no infra changes
+        if: steps.tf_changes.outputs.terraform != 'true'
+        run: echo "No changes in infrastructure/terraform; skipping Terraform."
 
   # Stage 3: Build and Push Images
   build:
